@@ -1,28 +1,14 @@
 """
-Users API endpoints.
-This file will be accessible at /api/users/*
+User Address API endpoints.
+This file will be accessible at /api/users/address/*
+Note: This approach gives you routes like /api/users/address/{user_id}
+If you want /api/users/{user_id}/address, use Option 1 instead.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Path
 from typing import List, Optional
 from pydantic import BaseModel
 
 router = APIRouter()
-
-# Pydantic models for request/response
-class User(BaseModel):
-    id: int
-    name: str
-    email: str
-    active: bool = True
-
-class UserCreate(BaseModel):
-    name: str
-    email: str
-
-class UserUpdate(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
-    active: Optional[bool] = None
 
 # Address models
 class Address(BaseModel):
@@ -51,90 +37,35 @@ class AddressUpdate(BaseModel):
     country: Optional[str] = None
     is_primary: Optional[bool] = None
 
-# In-memory storage for demo purposes
-users_db = [
-    User(id=1, name="John Doe", email="john@example.com"),
-    User(id=2, name="Jane Smith", email="jane@example.com"),
-    User(id=3, name="Bob Johnson", email="bob@example.com")
-]
-
-# In-memory storage for addresses
+# In-memory storage for demo
 addresses_db = [
     Address(id=1, user_id=1, street="123 Main St", city="San Francisco", state="CA", zip_code="94102", country="USA", is_primary=True),
     Address(id=2, user_id=1, street="456 Work Ave", city="San Francisco", state="CA", zip_code="94105", country="USA", is_primary=False),
     Address(id=3, user_id=2, street="789 Oak St", city="New York", state="NY", zip_code="10001", country="USA", is_primary=True),
 ]
 
-@router.get("/", response_model=List[User])
-async def get_users():
-    """Get all users."""
-    return users_db
+# Helper function to check if user exists (you'd normally check your users database)
+def user_exists(user_id: int) -> bool:
+    # In a real app, you'd check your users database
+    # For demo, assume users 1, 2, 3 exist
+    return user_id in [1, 2, 3]
 
-@router.get("/{user_id}", response_model=User)
-async def get_user(user_id: int):
-    """Get a specific user by ID."""
-    user = next((u for u in users_db if u.id == user_id), None)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-@router.post("/", response_model=User)
-async def create_user(user: UserCreate):
-    """Create a new user."""
-    new_id = max((u.id for u in users_db), default=0) + 1
-    new_user = User(id=new_id, **user.dict())
-    users_db.append(new_user)
-    return new_user
-
-@router.put("/{user_id}", response_model=User)
-async def update_user(user_id: int, user_update: UserUpdate):
-    """Update an existing user."""
-    user = next((u for u in users_db if u.id == user_id), None)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Update only provided fields
-    update_data = user_update.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(user, field, value)
-    
-    return user
-
-@router.delete("/{user_id}")
-async def delete_user(user_id: int):
-    """Delete a user."""
-    global users_db
-    user = next((u for u in users_db if u.id == user_id), None)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    users_db = [u for u in users_db if u.id != user_id]
-    return {"message": f"User {user_id} deleted successfully"}
-
-@router.get("/search/by-email")
-async def search_users_by_email(email: str):
-    """Search users by email."""
-    matching_users = [u for u in users_db if email.lower() in u.email.lower()]
-    return matching_users
-
-# Address endpoints for /api/users/{user_id}/address
-@router.get("/{user_id}/address", response_model=List[Address])
-async def get_user_addresses(user_id: int):
+@router.get("/{user_id}", response_model=List[Address])
+async def get_user_addresses(user_id: int = Path(..., description="The ID of the user")):
     """Get all addresses for a specific user."""
-    # Check if user exists
-    user = next((u for u in users_db if u.id == user_id), None)
-    if not user:
+    if not user_exists(user_id):
         raise HTTPException(status_code=404, detail="User not found")
     
     user_addresses = [addr for addr in addresses_db if addr.user_id == user_id]
     return user_addresses
 
-@router.get("/{user_id}/address/{address_id}", response_model=Address)
-async def get_user_address(user_id: int, address_id: int):
+@router.get("/{user_id}/{address_id}", response_model=Address)
+async def get_user_address(
+    user_id: int = Path(..., description="The ID of the user"),
+    address_id: int = Path(..., description="The ID of the address")
+):
     """Get a specific address for a user."""
-    # Check if user exists
-    user = next((u for u in users_db if u.id == user_id), None)
-    if not user:
+    if not user_exists(user_id):
         raise HTTPException(status_code=404, detail="User not found")
     
     address = next((addr for addr in addresses_db if addr.id == address_id and addr.user_id == user_id), None)
@@ -143,12 +74,13 @@ async def get_user_address(user_id: int, address_id: int):
     
     return address
 
-@router.post("/{user_id}/address", response_model=Address)
-async def create_user_address(user_id: int, address: AddressCreate):
+@router.post("/{user_id}", response_model=Address)
+async def create_user_address(
+    address: AddressCreate,
+    user_id: int = Path(..., description="The ID of the user")
+):
     """Create a new address for a user."""
-    # Check if user exists
-    user = next((u for u in users_db if u.id == user_id), None)
-    if not user:
+    if not user_exists(user_id):
         raise HTTPException(status_code=404, detail="User not found")
     
     # If this is set as primary, make all other addresses for this user non-primary
@@ -163,12 +95,14 @@ async def create_user_address(user_id: int, address: AddressCreate):
     
     return new_address
 
-@router.put("/{user_id}/address/{address_id}", response_model=Address)
-async def update_user_address(user_id: int, address_id: int, address_update: AddressUpdate):
+@router.put("/{user_id}/{address_id}", response_model=Address)
+async def update_user_address(
+    address_update: AddressUpdate,
+    user_id: int = Path(..., description="The ID of the user"),
+    address_id: int = Path(..., description="The ID of the address")
+):
     """Update a specific address for a user."""
-    # Check if user exists
-    user = next((u for u in users_db if u.id == user_id), None)
-    if not user:
+    if not user_exists(user_id):
         raise HTTPException(status_code=404, detail="User not found")
     
     address = next((addr for addr in addresses_db if addr.id == address_id and addr.user_id == user_id), None)
@@ -189,14 +123,15 @@ async def update_user_address(user_id: int, address_id: int, address_update: Add
     
     return address
 
-@router.delete("/{user_id}/address/{address_id}")
-async def delete_user_address(user_id: int, address_id: int):
+@router.delete("/{user_id}/{address_id}")
+async def delete_user_address(
+    user_id: int = Path(..., description="The ID of the user"),
+    address_id: int = Path(..., description="The ID of the address")
+):
     """Delete a specific address for a user."""
     global addresses_db
     
-    # Check if user exists
-    user = next((u for u in users_db if u.id == user_id), None)
-    if not user:
+    if not user_exists(user_id):
         raise HTTPException(status_code=404, detail="User not found")
     
     address = next((addr for addr in addresses_db if addr.id == address_id and addr.user_id == user_id), None)
@@ -206,12 +141,10 @@ async def delete_user_address(user_id: int, address_id: int):
     addresses_db = [addr for addr in addresses_db if not (addr.id == address_id and addr.user_id == user_id)]
     return {"message": f"Address {address_id} for user {user_id} deleted successfully"}
 
-@router.get("/{user_id}/address/primary", response_model=Address)
-async def get_user_primary_address(user_id: int):
+@router.get("/{user_id}/primary", response_model=Address)
+async def get_user_primary_address(user_id: int = Path(..., description="The ID of the user")):
     """Get the primary address for a user."""
-    # Check if user exists
-    user = next((u for u in users_db if u.id == user_id), None)
-    if not user:
+    if not user_exists(user_id):
         raise HTTPException(status_code=404, detail="User not found")
     
     primary_address = next((addr for addr in addresses_db if addr.user_id == user_id and addr.is_primary), None)
